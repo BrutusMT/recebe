@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Controle de Encomendas Offline</title>
+<style>
+  body { font-family: Arial, sans-serif; margin:0; padding:0; background:#f4f4f4; }
+  header { background:#4CAF50; color:white; padding:1rem; text-align:center; }
+  main { padding:1rem; }
+  input[type=text] { width:60%; padding:0.5rem; font-size:1rem; }
+  select, button { padding:0.5rem; font-size:1rem; margin-left:0.5rem; }
+  table { width:100%; border-collapse: collapse; margin-top:1rem; }
+  th, td { border:1px solid #ccc; padding:0.5rem; text-align:left; }
+  tr.recebido { background-color:#e0f7fa; }
+  tr.saida { background-color:#fff9c4; }
+  tr.entregue { background-color:#c8e6c9; }
+  .entregador { font-weight:bold; }
+  .feedback { position:fixed; top:10px; left:50%; transform:translateX(-50%); padding:1rem 2rem; border-radius:8px; color:white; display:none; font-weight:bold; }
+  .success { background-color:#4CAF50; animation:fade 1s ease forwards; }
+  .error { background-color:#f44336; animation:fade 1s ease forwards; }
+  @keyframes fade { 0% {opacity:0;} 10% {opacity:1;} 90% {opacity:1;} 100% {opacity:0;} }
+  #videoContainer { margin-top:1rem; text-align:center; }
+  video { width:100%; max-width:400px; border:1px solid #ccc; border-radius:8px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Controle de Encomendas Offline</h1>
+</header>
+
+<main>
+  <div>
+    <input type="text" id="codigoInput" placeholder="Bipe o código ou use a câmera">
+    <select id="entregadorSelect">
+      <option value="">Escolha entregador</option>
+      <option value="João">João</option>
+      <option value="Maria">Maria</option>
+      <option value="Pedro">Pedro</option>
+    </select>
+    <button onclick="adicionarItem()">Adicionar</button>
+    <button onclick="exportarPDF()">PDF</button>
+    <button onclick="exportarCSV()">CSV/Excel</button>
+    <button onclick="toggleCamera()">Câmera 📷</button>
+  </div>
+
+  <div style="margin-top:1rem;">
+    <label>Status: 
+      <select id="filtroStatus" onchange="atualizarTabela()">
+        <option value="">Todos</option>
+        <option value="Recebido">Recebido</option>
+        <option value="Saída">Saída</option>
+        <option value="Entregue">Entregue</option>
+      </select>
+    </label>
+    <label>Entregador: 
+      <select id="filtroEntregador" onchange="atualizarTabela()">
+        <option value="">Todos</option>
+        <option value="João">João</option>
+        <option value="Maria">Maria</option>
+        <option value="Pedro">Pedro</option>
+      </select>
+    </label>
+  </div>
+
+  <div id="videoContainer" style="display:none;">
+    <video id="video" autoplay></video>
+  </div>
+
+  <table id="romaneioTable">
+    <thead>
+      <tr>
+        <th>Código</th>
+        <th>Status</th>
+        <th>Entregador</th>
+        <th>Ações</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+  <div id="feedback" class="feedback"></div>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
+<script src="https://unpkg.com/@zxing/library@latest"></script>
+<script>
+let romaneio = JSON.parse(localStorage.getItem('romaneio')) || [];
+const tabela = document.querySelector("#romaneioTable tbody");
+const feedback = document.getElementById('feedback');
+
+// Funções básicas
+function salvarLocal() { localStorage.setItem('romaneio', JSON.stringify(romaneio)); }
+function mostrarFeedback(msg, tipo) {
+  feedback.textContent = msg;
+  feedback.className = 'feedback ' + tipo;
+  feedback.style.display = 'block';
+  setTimeout(()=>feedback.style.display='none',1000);
+}
+function atualizarTabela() {
+  const statusFiltro = document.getElementById('filtroStatus').value;
+  const entregadorFiltro = document.getElementById('filtroEntregador').value;
+  tabela.innerHTML = '';
+  romaneio.forEach((item, index) => {
+    if((!statusFiltro || item.status===statusFiltro) && (!entregadorFiltro || item.entregador===entregadorFiltro)){
+      const tr = document.createElement('tr');
+      tr.className = item.status.toLowerCase();
+      tr.innerHTML = `
+        <td>${item.codigo}</td>
+        <td>${item.status}</td>
+        <td class="entregador">${item.entregador || ''}</td>
+        <td>
+          <button onclick="marcarSaida(${index})">Saída</button>
+          <button onclick="marcarEntregue(${index})">Entregue</button>
+          <button onclick="removerItem(${index})">Remover</button>
+        </td>`;
+      tabela.appendChild(tr);
+    }
+  });
+}
+
+function adicionarItem(codigoManual=null) {
+  const codigo = codigoManual || document.getElementById('codigoInput').value.trim();
+  const entregador = document.getElementById('entregadorSelect').value;
+  if(!codigo) return mostrarFeedback('Código vazio!', 'error');
+  romaneio.push({codigo, status:'Recebido', entregador});
+  salvarLocal();
+  atualizarTabela();
+  document.getElementById('codigoInput').value = '';
+  document.getElementById('codigoInput').focus();
+  mostrarFeedback('Item adicionado!', 'success');
+}
+
+function marcarSaida(index) { romaneio[index].status='Saída'; salvarLocal(); atualizarTabela(); mostrarFeedback('Item marcado para saída', 'success'); }
+function marcarEntregue(index) { romaneio[index].status='Entregue'; salvarLocal(); atualizarTabela(); mostrarFeedback('Item entregue!', 'success'); }
+function removerItem(index) { if(confirm('Deseja remover este item?')) { romaneio.splice(index,1); salvarLocal(); atualizarTabela(); mostrarFeedback('Item removido', 'success'); } }
+
+// Exportar PDF
+function exportarPDF() {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  doc.setFontSize(12);
+  doc.text("Romaneio de Encomendas", 10, 10);
+  let y = 20;
+  romaneio.forEach(item => { doc.text(`${item.codigo} | ${item.status} | ${item.entregador || ''}`, 10, y); y+=10; });
+  doc.save('romaneio.pdf');
+}
+
+// Exportar CSV
+function exportarCSV() {
+  let csv = 'Código,Status,Entregador\n';
+  romaneio.forEach(item => { csv += `${item.codigo},${item.status},${item.entregador || ''}\n`; });
+  const blob = new Blob([csv], {type: 'text/csv'});
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = 'romaneio.csv';
+  link.click();
+}
+
+// Scanner de câmera
+let video = document.getElementById('video');
+let codeReader = null;
+let cameraAtiva = false;
+
+async function toggleCamera() {
+  const container = document.getElementById('videoContainer');
+  if(cameraAtiva){
+    video.srcObject.getTracks().forEach(track=>track.stop());
+    container.style.display='none';
+    cameraAtiva=false;
+    return;
+  }
+  container.style.display='block';
+  const devices = await ZXing.BrowserMultiFormatReader.listVideoInputDevices();
+  const deviceId = devices[0].deviceId;
+  codeReader = new ZXing.BrowserMultiFormatReader();
+  codeReader.decodeFromVideoDevice(deviceId, video, (result, err) => {
+    if(result) {
+      adicionarItem(result.text);
+    }
+  });
+  cameraAtiva=true;
+}
+
+atualizarTabela();
+document.getElementById('codigoInput').focus();
+</script>
+
+</body>
+</html>
