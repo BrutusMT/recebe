@@ -8,7 +8,7 @@
   body { font-family: Arial, sans-serif; margin:0; padding:0; background:#f4f4f4; }
   header { background:#4CAF50; color:white; padding:1rem; text-align:center; }
   main { padding:1rem; }
-  input[type=text] { width:60%; padding:0.5rem; font-size:1rem; }
+  input[type=text] { width:55%; padding:0.5rem; font-size:1rem; }
   select, button { padding:0.5rem; font-size:1rem; margin-left:0.5rem; }
   table { width:100%; border-collapse: collapse; margin-top:1rem; }
   th, td { border:1px solid #ccc; padding:0.5rem; text-align:left; }
@@ -16,11 +16,11 @@
   tr.saida { background-color:#fff9c4; }
   tr.entregue { background-color:#c8e6c9; }
   .entregador { font-weight:bold; }
-  .feedback { position:fixed; top:10px; left:50%; transform:translateX(-50%); padding:1rem 2rem; border-radius:8px; color:white; display:none; font-weight:bold; }
+  .feedback { position:fixed; top:10px; left:50%; transform:translateX(-50%); padding:1rem 2rem; border-radius:8px; color:white; display:none; font-weight:bold; z-index:1000; }
   .success { background-color:#4CAF50; animation:fade 1s ease forwards; }
   .error { background-color:#f44336; animation:fade 1s ease forwards; }
   @keyframes fade { 0% {opacity:0;} 10% {opacity:1;} 90% {opacity:1;} 100% {opacity:0;} }
-  #videoContainer { margin-top:1rem; text-align:center; }
+  #videoContainer { margin-top:1rem; text-align:center; display:none; }
   video { width:100%; max-width:400px; border:1px solid #ccc; border-radius:8px; }
 </style>
 </head>
@@ -32,7 +32,7 @@
 
 <main>
   <div>
-    <input type="text" id="codigoInput" placeholder="Bipe o código ou use a câmera">
+    <input type="text" id="codigoInput" placeholder="Bipe ou use a câmera">
     <select id="entregadorSelect">
       <option value="">Escolha entregador</option>
       <option value="João">João</option>
@@ -64,8 +64,8 @@
     </label>
   </div>
 
-  <div id="videoContainer" style="display:none;">
-    <video id="video" autoplay></video>
+  <div id="videoContainer">
+    <video id="video" autoplay muted></video>
   </div>
 
   <table id="romaneioTable">
@@ -84,14 +84,14 @@
 </main>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
 <script src="https://unpkg.com/@zxing/library@latest"></script>
+
 <script>
 let romaneio = JSON.parse(localStorage.getItem('romaneio')) || [];
 const tabela = document.querySelector("#romaneioTable tbody");
 const feedback = document.getElementById('feedback');
 
-// Funções básicas
+// Funções de armazenamento e feedback
 function salvarLocal() { localStorage.setItem('romaneio', JSON.stringify(romaneio)); }
 function mostrarFeedback(msg, tipo) {
   feedback.textContent = msg;
@@ -99,6 +99,8 @@ function mostrarFeedback(msg, tipo) {
   feedback.style.display = 'block';
   setTimeout(()=>feedback.style.display='none',1000);
 }
+
+// Atualizar tabela com filtros
 function atualizarTabela() {
   const statusFiltro = document.getElementById('filtroStatus').value;
   const entregadorFiltro = document.getElementById('filtroEntregador').value;
@@ -121,6 +123,7 @@ function atualizarTabela() {
   });
 }
 
+// Funções de manipulação de itens
 function adicionarItem(codigoManual=null) {
   const codigo = codigoManual || document.getElementById('codigoInput').value.trim();
   const entregador = document.getElementById('entregadorSelect').value;
@@ -159,7 +162,7 @@ function exportarCSV() {
   link.click();
 }
 
-// Scanner de câmera
+// Scanner via câmera
 let video = document.getElementById('video');
 let codeReader = null;
 let cameraAtiva = false;
@@ -167,25 +170,34 @@ let cameraAtiva = false;
 async function toggleCamera() {
   const container = document.getElementById('videoContainer');
   if(cameraAtiva){
-    video.srcObject.getTracks().forEach(track=>track.stop());
+    if(video.srcObject) video.srcObject.getTracks().forEach(track=>track.stop());
     container.style.display='none';
     cameraAtiva=false;
     return;
   }
+
   container.style.display='block';
-  const devices = await ZXing.BrowserMultiFormatReader.listVideoInputDevices();
-  const deviceId = devices[0].deviceId;
-  codeReader = new ZXing.BrowserMultiFormatReader();
-  codeReader.decodeFromVideoDevice(deviceId, video, (result, err) => {
-    if(result) {
-      adicionarItem(result.text);
-    }
-  });
-  cameraAtiva=true;
+  try {
+    const devices = await ZXing.BrowserMultiFormatReader.listVideoInputDevices();
+    if(devices.length === 0) throw "Nenhuma câmera encontrada";
+
+    const deviceId = devices[0].deviceId;
+    codeReader = new ZXing.BrowserMultiFormatReader();
+    codeReader.decodeFromVideoDevice(deviceId, 'video', (result, err) => {
+      if(result) adicionarItem(result.text);
+      if(err && !(err instanceof ZXing.NotFoundException)) console.error(err);
+    });
+
+    cameraAtiva=true;
+  } catch(e) {
+    mostrarFeedback("Erro ao acessar a câmera", "error");
+    console.error(e);
+  }
 }
 
-atualizarTabela();
+// Foco automático no input
 document.getElementById('codigoInput').focus();
+atualizarTabela();
 </script>
 
 </body>
